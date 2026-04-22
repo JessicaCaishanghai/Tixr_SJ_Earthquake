@@ -1,0 +1,17 @@
+# Data files (too large or sensitive)
+*.xlsx
+*.docx
+~$*
+网页源代码
+RESALE_LISTING_TABLES*
+
+# Python
+__pycache__/
+*.pyc
+.DS_Store
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Claude internal
+.claude/
