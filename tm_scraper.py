@@ -1,6 +1,7 @@
 """
 Ticketmaster San Jose Earthquakes Scraper
-Scrape all the SJE related events，and the information from listings listing（Section / Price）
+Scrapes all SJE-related events from the search results page,
+then collects resale listings (Section / Price) for each event.
 """
 
 import os
@@ -10,7 +11,7 @@ import time
 
 import pandas as pd
 
-# 所有输出文件保存到脚本所在目录
+# Save all output files to the same directory as this script
 OUT_DIR = os.path.dirname(os.path.abspath(__file__))
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
@@ -47,32 +48,32 @@ def build_driver():
 
 
 def get_page(driver, url, retries=3, wait=5):
-    """带重试的页面加载"""
+    """Load a page with retries on failure."""
     for attempt in range(retries):
         try:
             driver.get(url)
             time.sleep(wait)
             return True
         except Exception as e:
-            print(f"  [重试 {attempt+1}/{retries}] {e.__class__.__name__}")
+            print(f"  [retry {attempt+1}/{retries}] {e.__class__.__name__}")
             time.sleep(3)
     return False
 
 
 # ---------------------------------------------------------------------------
-# Step 1: 搜索页 → SJE 赛事列表
+# Step 1: Search page → SJE event list
 # ---------------------------------------------------------------------------
 
 def scrape_event_list():
-    print(f"打开搜索页: {SEARCH_URL}")
+    print(f"Opening search page: {SEARCH_URL}")
     driver = build_driver()
     rows = []
     try:
         if not get_page(driver, SEARCH_URL, wait=5):
-            print("搜索页加载失败")
+            print("Failed to load search page")
             return pd.DataFrame()
 
-        # 滚动加载全部结果
+        # Scroll until no new content loads
         last_h = driver.execute_script("return document.body.scrollHeight")
         for _ in range(15):
             driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
@@ -83,7 +84,7 @@ def scrape_event_list():
             last_h = new_h
 
         cards = driver.find_elements(By.CSS_SELECTOR, "[data-testid='event-list-link']")
-        print(f"找到 {len(cards)} 张活动卡片")
+        print(f"Found {len(cards)} event cards")
 
         for card in cards:
             href = card.get_attribute("href") or ""
@@ -103,12 +104,13 @@ def scrape_event_list():
             eid_m = re.search(r"/event/([^/?]+)", href)
             event_id = eid_m.group(1) if eid_m else None
 
-            # 日期
+            # Extract date from URL if present (long-form URLs embed mm-dd-yyyy)
             dm = re.search(r"(\d{2}-\d{2}-\d{4})", href)
             if dm:
                 m, d, y = dm.group(1).split("-")
                 date = f"{y}-{m}-{d}"
             else:
+                # Fallback: parse grandparent div text for "Month DD, YYYY"
                 date = None
                 try:
                     gp_text = card.find_element(By.XPATH, "../..").text
@@ -143,7 +145,7 @@ def scrape_event_list():
 
 
 # ---------------------------------------------------------------------------
-# Step 2: 单场活动页 → listing（Section / Price）
+# Step 2: Event page → resale listings (Section / Price)
 # ---------------------------------------------------------------------------
 
 def scrape_event_listings(event_name, event_date, event_url):
@@ -151,7 +153,7 @@ def scrape_event_listings(event_name, event_date, event_url):
     rows = []
     try:
         if not get_page(driver, event_url, wait=6):
-            print("  页面加载失败，跳过")
+            print("  Page failed to load, skipping")
             return pd.DataFrame(columns=["event_name", "event_date", "section", "row", "ticket_type", "price", "entry_method"])
 
         try:
@@ -163,7 +165,7 @@ def scrape_event_listings(event_name, event_date, event_url):
         except Exception:
             pass
 
-        # 面板滚动，直到 listing 数量不再增加
+        # Scroll the listing panel until element count stabilizes
         try:
             panel = driver.find_element(By.CSS_SELECTOR, "[data-bdd='qp-split-scroll']")
             prev_count = 0
@@ -222,26 +224,26 @@ def scrape_event_listings(event_name, event_date, event_url):
 # ---------------------------------------------------------------------------
 
 def main():
-    # Step 1: 活动列表
+    # Step 1: Fetch event list
     df_events = scrape_event_list()
     if df_events.empty:
-        print("未爬到活动，退出")
+        print("No events found, exiting")
         return
 
     sje = df_events[
         df_events["name"].str.lower().str.contains("earthquake|san jose", na=False)
     ].reset_index(drop=True)
 
-    print(f"\n共 {len(sje)} 场 SJE 赛事:")
+    print(f"\n{len(sje)} SJE events found:")
     print(sje[["name", "date", "venue"]].to_string())
 
-    # 保存活动列表
+    # Save event list
     p = os.path.join(OUT_DIR, "tm_sje_events.csv")
     sje.to_csv(p, index=False)
-    print(f"\n活动列表已保存到 {p}")
+    print(f"\nEvent list saved to {p}")
 
-    # Step 2: 每场 listing
-    print("\n开始爬取各场 listing...")
+    # Step 2: Scrape listings for each event
+    print("\nScraping listings for each event...")
     all_listings = []
     for _, ev in sje.iterrows():
         print(f"\n→ {ev['name']} ({ev['date']})")
@@ -251,14 +253,14 @@ def main():
 
     df_all = pd.concat(all_listings, ignore_index=True)
 
-    # 保存
+    # Save listings
     p_listings = os.path.join(OUT_DIR, "tm_sje_listings.csv")
     df_all.to_csv(p_listings, index=False)
-    print(f"\n共 {len(df_all)} 条 listing，已保存到 {p_listings}")
+    print(f"\n{len(df_all)} listings saved to {p_listings}")
 
-    # 按 Section 汇总
+    # Section-level price summary
     if not df_all.empty and "section" in df_all.columns:
-        print("\n=== 各赛事 × Section 价格汇总 ===")
+        print("\n=== Price Summary by Event × Section ===")
         summary = (
             df_all.groupby(["event_date", "event_name", "section"])["price"]
             .agg(count="count", min_price="min", avg_price="mean")
@@ -268,7 +270,7 @@ def main():
         print(summary.to_string())
         p_summary = os.path.join(OUT_DIR, "tm_sje_summary.csv")
         summary.to_csv(p_summary, index=False)
-        print(f"\n汇总已保存到 {p_summary}")
+        print(f"\nSummary saved to {p_summary}")
 
 
 if __name__ == "__main__":
