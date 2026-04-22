@@ -1,7 +1,7 @@
 import requests
 import json
 
-API_KEY = "ysAgZSGVFoGtFzXWLA8RsmimFTvBHPkH"
+API_KEY = "YOUR_TICKETMASTER_API_KEY"  # get a free key at developer.ticketmaster.com
 BASE_URL = "https://app.ticketmaster.com/discovery/v2"
 
 
