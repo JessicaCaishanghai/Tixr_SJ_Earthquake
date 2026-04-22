@@ -1,6 +1,6 @@
 """
 Ticketmaster San Jose Earthquakes Scraper
-爬取搜索结果里所有 SJE 相关赛事，以及每场赛事的 listing（Section / Price）
+Scrape all the SJE related events，and the information from listings listing（Section / Price）
 """
 
 import os
